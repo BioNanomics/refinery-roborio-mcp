@@ -66,15 +66,19 @@ Add to `.vscode/mcp.json`:
 ```json
 {
   "servers": {
-    "roborio": {
+    "roborio-mcp-sim": {
       "type": "http",
       "url": "http://localhost:8765/mcp"
+    },
+    "roborio-mcp": {
+      "type": "http",
+      "url": "http://10.TE.AM.2:8765/mcp"
     }
   }
 }
 ```
 
-For a real robot, replace `localhost` with `10.xx.yy.2` (your team's roboRIO IP).
+Replace `10.TE.AM.2` with your team's roboRIO IP (e.g., `10.99.99.2` for team 9999).
 
 ### Claude Desktop
 
@@ -83,12 +87,17 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "roborio": {
+    "roborio-mcp-sim": {
       "url": "http://localhost:8765/mcp"
+    },
+    "roborio-mcp": {
+      "url": "http://10.TE.AM.2:8765/mcp"
     }
   }
 }
 ```
+
+Replace `10.TE.AM.2` with your team's roboRIO IP (e.g., `10.99.99.2` for team 9999).
 
 ## Available Tools
 
