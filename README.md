@@ -2,8 +2,10 @@
 
 An embedded MCP (Model Context Protocol) server that runs inside FRC robot code on the roboRIO (and in simulation). Exposes robot status, match info, subsystem state, and NetworkTables browsing to AI assistants (GitHub Copilot, Claude, etc.) via HTTP JSON-RPC 2.0.
 
-
 [Setup Short Video < 1min](https://www.instagram.com/reel/DV7w3rZDQpc/?igsh=ZWI2OGNlYnM2Njlj)
+
+![MCP Config Demo](screenshots/MCP-config-demo.png)
+![MCP Tool Selection](screenshots/MCP-tool-selection.png)
 
 Supports both **Java** and **C++** robot projects.
 
