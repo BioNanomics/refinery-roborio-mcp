@@ -1,0 +1,62 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+group = 'com.bionanomics.refinery'
+version = '0.0.1'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+    withJavadocJar()
+}
+
+repositories {
+    mavenCentral()
+    maven { url = "https://frcmaven.wpi.edu/artifactory/release/" }
+}
+
+// WPILib version — keep in sync with the robot project's GradleRIO version
+def wpiVersion = '2026.1.1'
+
+dependencies {
+    // WPILib APIs — compileOnly because the consuming robot project provides these at runtime
+    compileOnly "edu.wpi.first.wpilibj:wpilibj-java:${wpiVersion}"
+    compileOnly "edu.wpi.first.hal:hal-java:${wpiVersion}"
+    compileOnly "edu.wpi.first.ntcore:ntcore-java:${wpiVersion}"
+    compileOnly "edu.wpi.first.wpiutil:wpiutil-java:${wpiVersion}"
+    compileOnly "edu.wpi.first.wpimath:wpimath-java:${wpiVersion}"
+    compileOnly "edu.wpi.first.wpiunits:wpiunits-java:${wpiVersion}"
+
+    // WPILib command-based framework — compileOnly, optional at runtime
+    compileOnly "edu.wpi.first.wpilibNewCommands:wpilibNewCommands-java:${wpiVersion}"
+
+    // Testing
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+            pom {
+                name = 'Refinery RoboRIO MCP'
+                description = 'Embedded MCP server for FRC robots — exposes robot state to AI assistants'
+                url = 'https://github.com/BioNanomics/refinery-roborio-mcp'
+                licenses {
+                    license {
+                        name = 'MIT License'
+                        url = 'https://opensource.org/licenses/MIT'
+                    }
+                }
+            }
+        }
+    }
+}
