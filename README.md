@@ -7,7 +7,7 @@ An embedded MCP (Model Context Protocol) server that runs inside FRC robot code 
 ![MCP Config Demo](screenshots/MCP-config-demo.png)
 ![MCP Tool Selection](screenshots/MCP-tool-selection.png)
 
-Supports both **Java** and **C++** robot projects.
+Supports **Java**, **C++**, and **Python** (RobotPy) robot projects.
 
 Adapted from [open-ds.ai](https://github.com/horner/open-ds.ai)'s MCP server, but reading directly from WPILib APIs (`DriverStation`, `RobotController`, `CommandScheduler`, `NetworkTables`) rather than from a driver station GUI.
 
@@ -60,6 +60,27 @@ void Robot::RobotInit() {
     refinery::mcp::RoboRioMcpServer::Start();        // default port 8765
     // refinery::mcp::RoboRioMcpServer::Start(9000); // or custom port
 }
+```
+
+### Python (RobotPy)
+
+Install the package:
+
+```bash
+pip install refinery-roborio-mcp
+```
+
+In your `robot.py`:
+
+```python
+import wpilib
+from refinery_roborio_mcp import RoboRioMcpServer
+
+class MyRobot(wpilib.TimedRobot):
+    def robotInit(self):
+        # ... existing init code ...
+        RoboRioMcpServer.start()        # default port 8765
+        # RoboRioMcpServer.start(9000)  # or custom port
 ```
 
 ## MCP Client Configuration
@@ -130,6 +151,12 @@ All tools are **read-only** — no robot control via MCP.
 - **POSIX sockets** for HTTP — zero external dependencies
 - **2-worker thread pool** with a dedicated accept thread — roboRIO-friendly resource usage
 - **Distributed as source** — headers + sources compiled by the consuming robot project
+
+### Python
+- **Pure Python** — uses stdlib `http.server`, `json`, `threading` (no external dependencies beyond RobotPy)
+- **RobotPy WPILib bindings** — accesses `wpilib`, `ntcore`, `commands2` provided by RobotPy
+- **Daemon thread HTTP server** — roboRIO-friendly, stops automatically with robot code
+- **Distributed as pip package** — `pip install refinery-roborio-mcp`
 
 ### Common
 - **MCP protocol version:** `2025-03-26`

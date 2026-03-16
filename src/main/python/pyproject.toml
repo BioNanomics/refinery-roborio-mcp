@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "refinery-roborio-mcp"
+version = "0.0.3"
+description = "Embedded MCP server for FRC robots running RobotPy"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "robotpy-wpilib>=2026.1.0",
+    "robotpy-commands-v2>=2026.1.0",
+    "pyntcore>=2026.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/BioNanomics/refinery-roborio-mcp"
+Issues = "https://github.com/BioNanomics/refinery-roborio-mcp/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]

@@ -23,7 +23,7 @@ namespace refinery::mcp {
 class RoboRioMcpServer {
  public:
   static constexpr const char* kServerName = "refinery-roborio-mcp";
-  static constexpr const char* kServerVersion = "0.0.2";
+  static constexpr const char* kServerVersion = "0.0.3";
   static constexpr const char* kMcpProtocolVersion = "2025-03-26";
   static constexpr int kDefaultPort = 8765;
 
