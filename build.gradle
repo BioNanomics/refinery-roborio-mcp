@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.bionanomics.refinery'
-version = '0.0.1'
+version = '0.0.2'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_17
@@ -42,10 +42,27 @@ test {
     useJUnitPlatform()
 }
 
+// C++ source distribution — headers and sources zipped for vendordep consumption
+task cppHeadersZip(type: Zip) {
+    archiveClassifier = 'headers'
+    from('src/main/include') {
+        into '/'
+    }
+}
+
+task cppSourcesZip(type: Zip) {
+    archiveClassifier = 'sources'
+    from('src/main/cpp') {
+        into '/'
+    }
+}
+
 publishing {
     publications {
         maven(MavenPublication) {
             from components.java
+            artifact cppHeadersZip
+            artifact cppSourcesZip
             pom {
                 name = 'Refinery RoboRIO MCP'
                 description = 'Embedded MCP server for FRC robots — exposes robot state to AI assistants'

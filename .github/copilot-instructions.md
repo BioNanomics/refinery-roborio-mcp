@@ -1,8 +1,8 @@
 ## Project Overview
 
-This is a Java library providing an embedded MCP (Model Context Protocol) server for FRC robots running on the roboRIO. It exposes read-only robot state via HTTP JSON-RPC 2.0 on port 8765 with zero external dependencies.
+This is a Java and C++ library providing an embedded MCP (Model Context Protocol) server for FRC robots running on the roboRIO. It exposes read-only robot state via HTTP JSON-RPC 2.0 on port 8765 with zero external dependencies.
 
-**Stack**: Java 17, WPILib 2026.x, Gradle, MCP protocol 2025-03-26
+**Stack**: Java 17 + C++17, WPILib 2026.x, Gradle, MCP protocol 2025-03-26
 
 ---
 
@@ -29,12 +29,13 @@ This is a Java library providing an embedded MCP (Model Context Protocol) server
 
 ### Resource Constraints
 - **Minimal thread usage**: HTTP server uses a fixed 2-thread pool — keep it small
-- **No reflection or heavy frameworks**: Hand-written JSON parser, no Gson/Jackson/regex
+- **No reflection or heavy frameworks**: Hand-written JSON parser in Java, `wpi::json` in C++, no Gson/Jackson/regex
 - **compileOnly WPILib deps**: WPILib APIs are provided at runtime by the robot project — never bundle them
+- **C++ source distribution**: Headers + sources are zipped and compiled by the consuming project
 
 ### Static Design Pattern
 - Utility and tool classes are entirely static (`JsonRpc`, `JsonParser`, `RoboRioMcpTools`)
-- Server uses a singleton via `RoboRioMcpServer.start()` — no public `getInstance()`
+- Server uses a singleton via `RoboRioMcpServer.start()` (Java) / `RoboRioMcpServer::Start()` (C++) — no public `getInstance()`
 - WPILib APIs are accessed directly via static calls (`DriverStation`, `RobotController`, `NetworkTableInstance`)
 
 ### Error Handling
@@ -43,8 +44,10 @@ This is a Java library providing an embedded MCP (Model Context Protocol) server
 - Standard JSON-RPC error codes: `-32700` (parse), `-32601` (method not found), `-32602` (invalid params)
 
 ### Naming Conventions
-- **Classes**: PascalCase (`RoboRioMcpServer`, `JsonMap`)
-- **Methods/variables**: camelCase (`getRobotStatus()`, `batteryVoltage`)
+- **Java classes**: PascalCase (`RoboRioMcpServer`, `JsonMap`)
+- **Java methods/variables**: camelCase (`getRobotStatus()`, `batteryVoltage`)
+- **C++ classes**: PascalCase in `refinery::mcp` namespace (`RoboRioMcpServer`, `JsonRpc`)
+- **C++ methods**: PascalCase (`Start()`, `CallTool()`), private members `m_` prefixed
 - **MCP tool names**: snake_case (`get_robot_status`, `get_battery_voltage`)
 - **JSON properties**: camelCase (`allianceColor`, `busUtilization`)
 
@@ -63,9 +66,8 @@ This is a Java library providing an embedded MCP (Model Context Protocol) server
 - Error responses: `{ "jsonrpc": "2.0", "id": <id>, "error": { "code": <code>, "message": "..." } }`
 
 ### JSON Data Structures
-- `JsonMap` uses `LinkedHashMap` to preserve insertion order in output
-- `JsonList` wraps `ArrayList` for JSON arrays
-- `JsonUtil` handles serialization and string escaping
+- **Java**: `JsonMap` uses `LinkedHashMap` to preserve insertion order in output; `JsonList` wraps `ArrayList`; `JsonUtil` handles serialization and string escaping
+- **C++**: Uses `wpi::json` (nlohmann JSON) — no custom JSON infrastructure needed
 
 ---
 
@@ -82,7 +84,8 @@ This is a Java library providing an embedded MCP (Model Context Protocol) server
 - Use Mermaid diagrams for architecture/workflow documentation (not ASCII art)
 - Use memorable names in diagrams (`Server`, `DriverStation` — not `A`, `B`)
 - Keep docs DRY — reference other files instead of duplicating content
-- JavaDoc on all public classes and methods
+- JavaDoc on all public Java classes and methods
+- Doxygen-style comments on all public C++ classes and methods
 
 ---
 
@@ -100,6 +103,7 @@ This is a Java library providing an embedded MCP (Model Context Protocol) server
 - [ ] Self-documenting names?
 - [ ] Functions small and focused?
 - [ ] Dead code removed or archived?
-- [ ] JavaDoc on public API?
+- [ ] JavaDoc on public Java API?
+- [ ] Doxygen comments on public C++ API?
 - [ ] `./gradlew build` passes?
 - [ ] Tests pass (when available)?

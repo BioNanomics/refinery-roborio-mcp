@@ -31,7 +31,15 @@
 - [x] Vendordep JSON (`vendordep/refinery-roborio-mcp.json`)
 - [x] README with installation, usage, tool reference
 
-## Phase 6: Integration into Rufus
+## Phase 6: C++ Port
+- [x] `RoboRioMcpServer.h` / `.cpp` — POSIX socket HTTP server with 2-worker thread pool
+- [x] `RoboRioMcpTools.h` / `.cpp` — All 7 tools using WPILib C++ APIs
+- [x] `JsonRpc.h` / `.cpp` — JSON-RPC 2.0 response builders using `wpi::json`
+- [x] `cppHeadersZip` / `cppSourcesZip` Gradle tasks + Maven publication
+- [x] `cppDependencies` in vendordep JSON
+- [x] README updated with C++ usage instructions
+
+## Phase 7: Integration into Rufus
 - [x] Add `RoboRioMcpServer.start()` to `Robot.java` constructor
 - [x] Create `.vscode/mcp.json` with server entry
 

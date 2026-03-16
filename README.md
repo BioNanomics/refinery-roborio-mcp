@@ -2,6 +2,8 @@
 
 An embedded MCP (Model Context Protocol) server that runs inside FRC robot code on the roboRIO (and in simulation). Exposes robot status, match info, subsystem state, and NetworkTables browsing to AI assistants (GitHub Copilot, Claude, etc.) via HTTP JSON-RPC 2.0.
 
+Supports both **Java** and **C++** robot projects.
+
 Adapted from [open-ds.ai](https://github.com/horner/open-ds.ai)'s MCP server, but reading directly from WPILib APIs (`DriverStation`, `RobotController`, `CommandScheduler`, `NetworkTables`) rather than from a driver station GUI.
 
 ## Installation
@@ -26,6 +28,8 @@ implementation 'com.bionanomics.refinery:refinery-roborio-mcp'
 
 ## Usage
 
+### Java
+
 In your `Robot.java` `robotInit()`:
 
 ```java
@@ -36,6 +40,20 @@ public void robotInit() {
     // ... existing init code ...
     RoboRioMcpServer.start();        // default port 8765
     // RoboRioMcpServer.start(9000); // or custom port
+}
+```
+
+### C++
+
+In your `Robot.cpp` `RobotInit()`:
+
+```cpp
+#include <refinery/mcp/RoboRioMcpServer.h>
+
+void Robot::RobotInit() {
+    // ... existing init code ...
+    refinery::mcp::RoboRioMcpServer::Start();        // default port 8765
+    // refinery::mcp::RoboRioMcpServer::Start(9000); // or custom port
 }
 ```
 
@@ -88,11 +106,22 @@ All tools are **read-only** — no robot control via MCP.
 
 ## Architecture
 
+### Java
 - **Zero external dependencies** — uses a lightweight built-in JSON implementation (no Gson/Jackson)
 - **WPILib is `compileOnly`** — the consuming robot project provides WPILib at runtime
-- **2-thread HTTP server** — roboRIO-friendly resource usage
+- **2-thread HTTP server** — roboRIO-friendly resource usage via `com.sun.net.httpserver`
+
+### C++
+- **Uses `wpi::json`** (nlohmann JSON bundled with WPILib) — no custom JSON parser needed
+- **POSIX sockets** for HTTP — zero external dependencies
+- **2-worker thread pool** with a dedicated accept thread — roboRIO-friendly resource usage
+- **Distributed as source** — headers + sources compiled by the consuming robot project
+
+### Common
 - **MCP protocol version:** `2025-03-26`
 - **Transport:** Streamable HTTP on port 8765
+- **All tools are read-only** — no robot control via MCP
+- **7 tools** exposing robot status, battery, match info, stats, connections, subsystems, and NetworkTables
 
 ## License
 

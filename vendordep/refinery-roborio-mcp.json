@@ -1,7 +1,7 @@
 {
     "fileName": "refinery-roborio-mcp.json",
     "name": "Refinery RoboRIO MCP",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "uuid": "b7e3f1a2-9d4c-4e8b-a6f0-1c2d3e4f5a6b",
     "frcYear": "2026",
     "mavenUrls": [],
@@ -10,9 +10,18 @@
         {
             "groupId": "com.bionanomics.refinery",
             "artifactId": "refinery-roborio-mcp",
-            "version": "0.0.1"
+            "version": "0.0.2"
         }
     ],
     "jniDependencies": [],
-    "cppDependencies": []
+    "cppDependencies": [
+        {
+            "groupId": "com.bionanomics.refinery",
+            "artifactId": "refinery-roborio-mcp",
+            "version": "0.0.2",
+            "headerClassifier": "headers",
+            "sourcesClassifier": "sources",
+            "binaryPlatforms": []
+        }
+    ]
 }

@@ -17,7 +17,7 @@ import java.util.concurrent.Executors;
  */
 public class RoboRioMcpServer {
     public static final String SERVER_NAME = "refinery-roborio-mcp";
-    public static final String SERVER_VERSION = "0.0.1";
+    public static final String SERVER_VERSION = "0.0.2";
     public static final String MCP_PROTOCOL_VERSION = "2025-03-26";
     public static final int DEFAULT_PORT = 8765;
 
