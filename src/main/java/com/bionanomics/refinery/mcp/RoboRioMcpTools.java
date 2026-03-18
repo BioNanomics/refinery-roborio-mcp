@@ -305,7 +305,14 @@ public final class RoboRioMcpTools {
                     topics.put(leafName, strArr);
                     break;
                 default:
-                    topics.put(leafName, "[" + value.getType().name() + "]");
+                    // Attempt to decode WPILib struct types (Pose2d, ChassisSpeeds, etc.)
+                    String typeString = topic.getTypeString();
+                    Object decoded = StructDecoder.decode(typeString, value.getRaw());
+                    if (decoded != null) {
+                        topics.put(leafName, decoded);
+                    } else {
+                        topics.put(leafName, "[" + value.getType().name() + "]");
+                    }
                     break;
             }
         }
