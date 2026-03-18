@@ -10,6 +10,7 @@ import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import edu.wpi.first.wpilibj2.command.Subsystem;
 
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * MCP tool definitions and implementations for reading robot state.
@@ -19,6 +20,9 @@ import java.util.Set;
 public final class RoboRioMcpTools {
     private RoboRioMcpTools() {
     }
+
+    /** Monotonic sequence number so the robot can detect fresh writes. */
+    private static final AtomicLong mcpSeq = new AtomicLong(0);
 
     public static JsonList getToolDefinitions() {
         JsonList tools = new JsonList();
@@ -69,6 +73,56 @@ public final class RoboRioMcpTools {
                 + "Use the 'path' argument to navigate deeper.",
             ntSchema));
 
+        // simulate_joystick tool
+        JsonMap sjProperties = new JsonMap();
+
+        JsonMap sjPort = new JsonMap();
+        sjPort.put("type", "integer");
+        sjPort.put("description", "Joystick port (0 = driver, 1 = operator). Default 0.");
+        sjProperties.put("port", sjPort);
+
+        JsonMap sjAxes = new JsonMap();
+        sjAxes.put("type", "object");
+        sjAxes.put("description",
+            "Axis values to set. Keys are axis indices (0-5), values are doubles (-1.0 to 1.0). "
+            + "Xbox mapping: 0=leftX, 1=leftY, 2=leftTrigger, 3=rightTrigger, 4=rightX, 5=rightY.");
+        sjProperties.put("axes", sjAxes);
+
+        JsonMap sjButtons = new JsonMap();
+        sjButtons.put("type", "object");
+        sjButtons.put("description",
+            "Button states to set. Keys are button numbers (1-based), values are booleans. "
+            + "Xbox mapping: 1=A, 2=B, 3=X, 4=Y, 5=LB, 6=RB, 7=Back, 8=Start, 9=LStick, 10=RStick.");
+        sjProperties.put("buttons", sjButtons);
+
+        JsonMap sjPov = new JsonMap();
+        sjPov.put("type", "integer");
+        sjPov.put("description",
+            "POV/D-pad angle in degrees (0=up, 90=right, 180=down, 270=left, -1=released).");
+        sjProperties.put("pov", sjPov);
+
+        JsonMap sjDuration = new JsonMap();
+        sjDuration.put("type", "integer");
+        sjDuration.put("description",
+            "How many robot cycles (20ms each) to hold the input before auto-releasing. "
+            + "Default 25 (0.5s). Use 0 to release all simulated inputs immediately.");
+        sjProperties.put("duration_cycles", sjDuration);
+
+        JsonMap sjSchema = new JsonMap();
+        sjSchema.put("type", "object");
+        sjSchema.put("properties", sjProperties);
+
+        tools.add(defineTool("simulate_joystick",
+            "Simulate joystick/controller input on the robot. Writes virtual inputs "
+                + "to NetworkTables that the robot code merges with real controller data. "
+                + "Only effective while the robot is enabled from the Driver Station. "
+                + "Inputs auto-release after duration_cycles (default 0.5s). "
+                + "Use duration_cycles=0 to release all simulated inputs immediately. "
+                + "Common patterns: "
+                + "POV 0=D-pad up, 90=right, 180=down, 270=left. "
+                + "Button 1=A, 2=B, 3=X, 4=Y, 5=LB, 6=RB.",
+            sjSchema));
+
         return tools;
     }
 
@@ -92,6 +146,8 @@ public final class RoboRioMcpTools {
                     path = "/";
                 }
                 return wrapTextResult(getNetworkTables(path));
+            case "simulate_joystick":
+                return wrapTextResult(simulateJoystick(arguments));
             default:
                 return wrapErrorResult("Unknown tool: " + name);
         }
@@ -318,6 +374,80 @@ public final class RoboRioMcpTools {
         }
         result.put("topics", topics);
 
+        return result.toJson();
+    }
+
+    /**
+     * Write simulated joystick state to NetworkTables under /MCP/Joystick/{port}/.
+     * The robot reads these keys and merges them with real controller input.
+     */
+    private static String simulateJoystick(JsonMap arguments) {
+        if (!DriverStation.isEnabled()) {
+            return "{\"error\":\"Robot is not enabled. Enable from Driver Station first.\"}";
+        }
+
+        int port = arguments.getInt("port", 0);
+        int durationCycles = arguments.getInt("duration_cycles", 25);
+
+        NetworkTable table = NetworkTableInstance.getDefault()
+            .getTable("MCP/Joystick/" + port);
+
+        long seq = mcpSeq.incrementAndGet();
+
+        // Write axes
+        JsonMap axes = arguments.getMap("axes");
+        if (axes != null) {
+            double[] axisValues = new double[6];
+            // Read existing values first
+            double[] existing = table.getEntry("axes").getDoubleArray(new double[6]);
+            System.arraycopy(existing, 0, axisValues, 0, Math.min(existing.length, 6));
+            for (var entry : axes) {
+                try {
+                    int idx = Integer.parseInt(entry.getKey());
+                    if (idx >= 0 && idx < 6 && entry.getValue() instanceof Number) {
+                        axisValues[idx] = ((Number) entry.getValue()).doubleValue();
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+            table.getEntry("axes").setDoubleArray(axisValues);
+        }
+
+        // Write buttons
+        JsonMap buttons = arguments.getMap("buttons");
+        if (buttons != null) {
+            boolean[] btnValues = new boolean[11]; // 0 unused, 1-10
+            boolean[] existing = table.getEntry("buttons").getBooleanArray(new boolean[11]);
+            System.arraycopy(existing, 0, btnValues, 0, Math.min(existing.length, 11));
+            for (var entry : buttons) {
+                try {
+                    int idx = Integer.parseInt(entry.getKey());
+                    if (idx >= 1 && idx <= 10 && entry.getValue() instanceof Boolean) {
+                        btnValues[idx] = (Boolean) entry.getValue();
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+            table.getEntry("buttons").setBooleanArray(btnValues);
+        }
+
+        // Write POV
+        int pov = arguments.getInt("pov", -2); // -2 = not specified
+        if (pov != -2) {
+            table.getEntry("pov").setInteger(pov);
+        }
+
+        // Write sequence and duration so robot knows this is fresh
+        table.getEntry("seq").setInteger(seq);
+        table.getEntry("duration").setInteger(durationCycles);
+        table.getEntry("timestamp").setInteger(System.currentTimeMillis());
+
+        JsonMap result = new JsonMap();
+        result.put("port", port);
+        result.put("seq", seq);
+        result.put("duration_cycles", durationCycles);
+        if (axes != null) result.put("axes_set", true);
+        if (buttons != null) result.put("buttons_set", true);
+        if (pov != -2) result.put("pov", pov);
+        result.put("status", "ok");
         return result.toJson();
     }
 

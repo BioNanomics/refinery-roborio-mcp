@@ -29,6 +29,24 @@ public class JsonMap implements Iterable<Map.Entry<String, Object>> {
         return val instanceof JsonMap ? (JsonMap) val : null;
     }
 
+    public int getInt(String key, int defaultValue) {
+        Object val = entries.get(key);
+        if (val instanceof Number) return ((Number) val).intValue();
+        return defaultValue;
+    }
+
+    public double getDouble(String key, double defaultValue) {
+        Object val = entries.get(key);
+        if (val instanceof Number) return ((Number) val).doubleValue();
+        return defaultValue;
+    }
+
+    public boolean getBoolean(String key, boolean defaultValue) {
+        Object val = entries.get(key);
+        if (val instanceof Boolean) return (Boolean) val;
+        return defaultValue;
+    }
+
     public boolean containsKey(String key) {
         return entries.containsKey(key);
     }
