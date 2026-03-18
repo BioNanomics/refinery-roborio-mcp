@@ -4,6 +4,7 @@ All tools are read-only — no robot control via MCP.
 """
 
 import json
+import struct as _struct
 
 
 class RoboRioMcpTools:
@@ -259,9 +260,154 @@ def _get_networktables(path):
         elif nt_type == nt_types.kStringArray:
             topics[leaf_name] = list(value.getStringArray())
         else:
-            topics[leaf_name] = f"[{nt_type.name}]"
+            # Attempt to decode WPILib struct types (Pose2d, ChassisSpeeds, etc.)
+            type_str = topic.getTypeString()
+            raw = value.getRaw()
+            decoded = _decode_struct(type_str, raw)
+            if decoded is not None:
+                topics[leaf_name] = decoded
+            else:
+                topics[leaf_name] = f"[{nt_type.name}]"
 
     return json.dumps({"path": path, "subtables": subtables, "topics": topics})
+
+
+# ---- Struct decoding ----
+
+_STRUCT_SIZES = {
+    "Rotation2d": 8,
+    "Translation2d": 16,
+    "Pose2d": 24,
+    "Transform2d": 24,
+    "Twist2d": 24,
+    "ChassisSpeeds": 24,
+    "SwerveModuleState": 16,
+    "SwerveModulePosition": 16,
+    "Quaternion": 32,
+    "Rotation3d": 32,
+    "Translation3d": 24,
+    "Pose3d": 56,
+}
+
+
+def _read_double(raw, offset):
+    return _struct.unpack_from("<d", raw, offset)[0]
+
+
+def _decode_rotation2d(raw, off):
+    return {"radians": _read_double(raw, off)}
+
+
+def _decode_translation2d(raw, off):
+    return {"x": _read_double(raw, off), "y": _read_double(raw, off + 8)}
+
+
+def _decode_pose2d(raw, off):
+    return {
+        "translation": _decode_translation2d(raw, off),
+        "rotation": _decode_rotation2d(raw, off + 16),
+    }
+
+
+def _decode_transform2d(raw, off):
+    return {
+        "translation": _decode_translation2d(raw, off),
+        "rotation": _decode_rotation2d(raw, off + 16),
+    }
+
+
+def _decode_twist2d(raw, off):
+    return {
+        "dx": _read_double(raw, off),
+        "dy": _read_double(raw, off + 8),
+        "dtheta": _read_double(raw, off + 16),
+    }
+
+
+def _decode_chassis_speeds(raw, off):
+    return {
+        "vx": _read_double(raw, off),
+        "vy": _read_double(raw, off + 8),
+        "omega": _read_double(raw, off + 16),
+    }
+
+
+def _decode_swerve_module_state(raw, off):
+    return {"speed": _read_double(raw, off), "angle": _decode_rotation2d(raw, off + 8)}
+
+
+def _decode_swerve_module_position(raw, off):
+    return {"distance": _read_double(raw, off), "angle": _decode_rotation2d(raw, off + 8)}
+
+
+def _decode_quaternion(raw, off):
+    return {
+        "w": _read_double(raw, off),
+        "x": _read_double(raw, off + 8),
+        "y": _read_double(raw, off + 16),
+        "z": _read_double(raw, off + 24),
+    }
+
+
+def _decode_rotation3d(raw, off):
+    return {"quaternion": _decode_quaternion(raw, off)}
+
+
+def _decode_translation3d(raw, off):
+    return {
+        "x": _read_double(raw, off),
+        "y": _read_double(raw, off + 8),
+        "z": _read_double(raw, off + 16),
+    }
+
+
+def _decode_pose3d(raw, off):
+    return {
+        "translation": _decode_translation3d(raw, off),
+        "rotation": _decode_rotation3d(raw, off + 24),
+    }
+
+
+_STRUCT_DECODERS = {
+    "Rotation2d": _decode_rotation2d,
+    "Translation2d": _decode_translation2d,
+    "Pose2d": _decode_pose2d,
+    "Transform2d": _decode_transform2d,
+    "Twist2d": _decode_twist2d,
+    "ChassisSpeeds": _decode_chassis_speeds,
+    "SwerveModuleState": _decode_swerve_module_state,
+    "SwerveModulePosition": _decode_swerve_module_position,
+    "Quaternion": _decode_quaternion,
+    "Rotation3d": _decode_rotation3d,
+    "Translation3d": _decode_translation3d,
+    "Pose3d": _decode_pose3d,
+}
+
+
+def _decode_struct(type_string, raw):
+    """Decode a WPILib struct type from raw NT bytes. Returns dict/list or None."""
+    if not type_string or not raw:
+        return None
+    if not type_string.startswith("struct:"):
+        return None
+
+    struct_part = type_string[len("struct:"):]
+    is_array = struct_part.endswith("[]")
+    type_name = struct_part[:-2] if is_array else struct_part
+
+    size = _STRUCT_SIZES.get(type_name)
+    if size is None or len(raw) < size:
+        return None
+
+    decoder = _STRUCT_DECODERS.get(type_name)
+    if decoder is None:
+        return None
+
+    if not is_array:
+        return decoder(raw, 0)
+
+    count = len(raw) // size
+    return [decoder(raw, i * size) for i in range(count)]
 
 
 # ---- Helpers ----

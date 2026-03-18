@@ -39,6 +39,22 @@ EXPECTED_MCP_METHODS = [
     "ping",
 ]
 
+# Struct types that all three languages must support, with byte sizes.
+EXPECTED_STRUCT_TYPES = {
+    "Rotation2d": 8,
+    "Translation2d": 16,
+    "Pose2d": 24,
+    "Transform2d": 24,
+    "Twist2d": 24,
+    "ChassisSpeeds": 24,
+    "SwerveModuleState": 16,
+    "SwerveModulePosition": 16,
+    "Quaternion": 32,
+    "Rotation3d": 32,
+    "Translation3d": 24,
+    "Pose3d": 56,
+}
+
 # ── Paths ────────────────────────────────────────────────────────────────────
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -384,6 +400,117 @@ def check_version_alignment():
     else:
         fail("vendordep/refinery-roborio-mcp.json not found")
 
+# ── Struct decoding parity ───────────────────────────────────────────────────
+
+def extract_struct_types_java():
+    """Extract struct type→size from Java StructDecoder.java switch statement."""
+    src = read(os.path.join(JAVA_DIR, "StructDecoder.java"))
+    return dict(re.findall(r'case\s+"(\w+)":\s*return\s+(\d+);', src))
+
+
+def extract_struct_types_cpp():
+    """Extract struct type→size from C++ StructSize() function."""
+    src = read(os.path.join(CPP_DIR, "RoboRioMcpTools.cpp"))
+    return dict(re.findall(r'typeName\s*==\s*"(\w+)"\)\s+return\s+(\d+);', src))
+
+
+def extract_struct_types_python():
+    """Extract struct type→size from Python _STRUCT_SIZES dict."""
+    src = read(os.path.join(PY_DIR, "mcp_tools.py"))
+    return dict(re.findall(r'"(\w+)":\s*(\d+)', src.split("_STRUCT_SIZES")[1].split("}")[0]))
+
+
+def extract_struct_fields_java():
+    """Extract which field names each Java struct decoder produces."""
+    src = read(os.path.join(JAVA_DIR, "StructDecoder.java"))
+    fields = {}
+    # Match method name and the put() calls inside it
+    for m in re.finditer(r'private static JsonMap decode(\w+)\(ByteBuffer buf\)\s*\{([^}]+(?:\{[^}]*\}[^}]*)*)\}', src):
+        name = m.group(1)
+        body = m.group(2)
+        keys = re.findall(r'm\.put\("(\w+)"', body)
+        fields[name] = sorted(keys)
+    return fields
+
+
+def extract_struct_fields_cpp():
+    """Extract which field names each C++ struct decoder produces."""
+    src = read(os.path.join(CPP_DIR, "RoboRioMcpTools.cpp"))
+    fields = {}
+    # Match functions like: wpi::json DecodePose2d(std::span<...> raw, size_t off) { ... }
+    for m in re.finditer(
+        r'wpi::json Decode(\w+)\(std::span<const uint8_t> raw, size_t off\)\s*\{(.*?)\n\}',
+        src, re.DOTALL,
+    ):
+        name = m.group(1)
+        body = m.group(2)
+        # Top-level field keys appear as {"key", ...} in the return statement
+        keys = re.findall(r'\{"(\w+)"', body)
+        fields[name] = sorted(set(keys))
+    return fields
+
+
+def extract_struct_fields_python():
+    """Extract which field names each Python struct decoder produces."""
+    src = read(os.path.join(PY_DIR, "mcp_tools.py"))
+    fields = {}
+    for m in re.finditer(r'def _decode_(\w+)\(raw, off\):\s*\n((?:    .+\n)+)', src):
+        name = m.group(1)
+        body = m.group(2)
+        keys = re.findall(r'"(\w+)":', body)
+        fields[name] = sorted(keys)
+    return fields
+
+
+def check_struct_parity():
+    """Verify all three languages support the same struct types with same sizes and fields."""
+    print("\n── Struct decoding parity ──")
+
+    java_types = extract_struct_types_java()
+    cpp_types = extract_struct_types_cpp()
+    py_types = extract_struct_types_python()
+
+    # Check type names and sizes
+    for lang, types in [("Java", java_types), ("C++", cpp_types), ("Python", py_types)]:
+        for name, expected_size in EXPECTED_STRUCT_TYPES.items():
+            actual = types.get(name)
+            if actual is None:
+                fail(f"{lang}: missing struct type {name}")
+            elif int(actual) != expected_size:
+                fail(f"{lang}: {name} size = {actual}, expected {expected_size}")
+            else:
+                ok(f"{lang}: {name} ({expected_size}B)")
+        extra = set(types.keys()) - set(EXPECTED_STRUCT_TYPES.keys())
+        if extra:
+            fail(f"{lang}: unexpected struct types: {extra}")
+
+    # Check field names match across languages
+    java_fields = extract_struct_fields_java()
+    cpp_fields = extract_struct_fields_cpp()
+    py_fields = extract_struct_fields_python()
+
+    # Normalize Python names: snake_case → PascalCase for comparison
+    py_name_map = {
+        "rotation2d": "Rotation2d", "translation2d": "Translation2d",
+        "pose2d": "Pose2d", "transform2d": "Transform2d",
+        "twist2d": "Twist2d", "chassis_speeds": "ChassisSpeeds",
+        "swerve_module_state": "SwerveModuleState",
+        "swerve_module_position": "SwerveModulePosition",
+        "quaternion": "Quaternion", "rotation3d": "Rotation3d",
+        "translation3d": "Translation3d", "pose3d": "Pose3d",
+    }
+    py_fields_normalized = {py_name_map.get(k, k): v for k, v in py_fields.items()}
+
+    for struct_name in EXPECTED_STRUCT_TYPES:
+        j = java_fields.get(struct_name, [])
+        c = cpp_fields.get(struct_name, [])
+        p = py_fields_normalized.get(struct_name, [])
+        if j == c == p:
+            ok(f"Fields match: {struct_name} → {j}")
+        else:
+            fail(f"Field mismatch for {struct_name}: Java={j}, C++={c}, Python={p}")
+
+
 # ── Build checks ────────────────────────────────────────────────────────────
 
 def run_gradle_build():
@@ -454,6 +581,7 @@ def main():
     check_java_api()
     check_cpp_api()
     check_python_api()
+    check_struct_parity()
     check_version_alignment()
 
     # Build checks (can be skipped with --no-build)

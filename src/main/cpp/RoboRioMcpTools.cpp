@@ -3,6 +3,7 @@
 
 #include "refinery/mcp/RoboRioMcpTools.h"
 
+#include <cstring>
 #include <string>
 #include <string_view>
 
@@ -14,6 +15,146 @@
 #include <networktables/Topic.h>
 
 namespace refinery::mcp {
+
+// ---- Struct decoding helpers ------------------------------------------------
+
+namespace {
+
+/// Returns the byte size of one instance of the named WPILib struct,
+/// or -1 if the type is not recognized.
+int StructSize(std::string_view typeName) {
+  if (typeName == "Rotation2d")           return 8;
+  if (typeName == "Translation2d")        return 16;
+  if (typeName == "Pose2d")               return 24;
+  if (typeName == "Transform2d")          return 24;
+  if (typeName == "Twist2d")              return 24;
+  if (typeName == "ChassisSpeeds")        return 24;
+  if (typeName == "SwerveModuleState")    return 16;
+  if (typeName == "SwerveModulePosition") return 16;
+  if (typeName == "Quaternion")           return 32;
+  if (typeName == "Rotation3d")           return 32;
+  if (typeName == "Translation3d")        return 24;
+  if (typeName == "Pose3d")               return 56;
+  return -1;
+}
+
+/// Read a little-endian double from raw bytes at the given offset.
+double ReadDouble(std::span<const uint8_t> raw, size_t offset) {
+  double val;
+  std::memcpy(&val, raw.data() + offset, sizeof(double));
+  return val;
+}
+
+wpi::json DecodeRotation2d(std::span<const uint8_t> raw, size_t off) {
+  return {{"radians", ReadDouble(raw, off)}};
+}
+
+wpi::json DecodeTranslation2d(std::span<const uint8_t> raw, size_t off) {
+  return {{"x", ReadDouble(raw, off)}, {"y", ReadDouble(raw, off + 8)}};
+}
+
+wpi::json DecodePose2d(std::span<const uint8_t> raw, size_t off) {
+  return {{"translation", DecodeTranslation2d(raw, off)},
+          {"rotation", DecodeRotation2d(raw, off + 16)}};
+}
+
+wpi::json DecodeTransform2d(std::span<const uint8_t> raw, size_t off) {
+  return {{"translation", DecodeTranslation2d(raw, off)},
+          {"rotation", DecodeRotation2d(raw, off + 16)}};
+}
+
+wpi::json DecodeTwist2d(std::span<const uint8_t> raw, size_t off) {
+  return {{"dx", ReadDouble(raw, off)},
+          {"dy", ReadDouble(raw, off + 8)},
+          {"dtheta", ReadDouble(raw, off + 16)}};
+}
+
+wpi::json DecodeChassisSpeeds(std::span<const uint8_t> raw, size_t off) {
+  return {{"vx", ReadDouble(raw, off)},
+          {"vy", ReadDouble(raw, off + 8)},
+          {"omega", ReadDouble(raw, off + 16)}};
+}
+
+wpi::json DecodeSwerveModuleState(std::span<const uint8_t> raw, size_t off) {
+  return {{"speed", ReadDouble(raw, off)},
+          {"angle", DecodeRotation2d(raw, off + 8)}};
+}
+
+wpi::json DecodeSwerveModulePosition(std::span<const uint8_t> raw, size_t off) {
+  return {{"distance", ReadDouble(raw, off)},
+          {"angle", DecodeRotation2d(raw, off + 8)}};
+}
+
+wpi::json DecodeQuaternion(std::span<const uint8_t> raw, size_t off) {
+  return {{"w", ReadDouble(raw, off)},
+          {"x", ReadDouble(raw, off + 8)},
+          {"y", ReadDouble(raw, off + 16)},
+          {"z", ReadDouble(raw, off + 24)}};
+}
+
+wpi::json DecodeRotation3d(std::span<const uint8_t> raw, size_t off) {
+  return {{"quaternion", DecodeQuaternion(raw, off)}};
+}
+
+wpi::json DecodeTranslation3d(std::span<const uint8_t> raw, size_t off) {
+  return {{"x", ReadDouble(raw, off)},
+          {"y", ReadDouble(raw, off + 8)},
+          {"z", ReadDouble(raw, off + 16)}};
+}
+
+wpi::json DecodePose3d(std::span<const uint8_t> raw, size_t off) {
+  return {{"translation", DecodeTranslation3d(raw, off)},
+          {"rotation", DecodeRotation3d(raw, off + 24)}};
+}
+
+/// Decode a single struct instance at the given byte offset.
+wpi::json DecodeOne(std::string_view typeName,
+                    std::span<const uint8_t> raw, size_t off) {
+  if (typeName == "Rotation2d")           return DecodeRotation2d(raw, off);
+  if (typeName == "Translation2d")        return DecodeTranslation2d(raw, off);
+  if (typeName == "Pose2d")               return DecodePose2d(raw, off);
+  if (typeName == "Transform2d")          return DecodeTransform2d(raw, off);
+  if (typeName == "Twist2d")              return DecodeTwist2d(raw, off);
+  if (typeName == "ChassisSpeeds")        return DecodeChassisSpeeds(raw, off);
+  if (typeName == "SwerveModuleState")    return DecodeSwerveModuleState(raw, off);
+  if (typeName == "SwerveModulePosition") return DecodeSwerveModulePosition(raw, off);
+  if (typeName == "Quaternion")           return DecodeQuaternion(raw, off);
+  if (typeName == "Rotation3d")           return DecodeRotation3d(raw, off);
+  if (typeName == "Translation3d")        return DecodeTranslation3d(raw, off);
+  if (typeName == "Pose3d")               return DecodePose3d(raw, off);
+  return nullptr;
+}
+
+/// Decode a WPILib struct type string + raw bytes into JSON.
+/// Returns nullptr if the type is not recognized.
+wpi::json DecodeStruct(std::string_view typeString,
+                       std::span<const uint8_t> raw) {
+  if (typeString.empty() || raw.empty()) return nullptr;
+  if (typeString.substr(0, 7) != "struct:") return nullptr;
+
+  auto structPart = typeString.substr(7);
+  bool isArray = structPart.size() >= 2 &&
+                 structPart.substr(structPart.size() - 2) == "[]";
+  auto typeName = isArray
+                      ? structPart.substr(0, structPart.size() - 2)
+                      : structPart;
+
+  int size = StructSize(typeName);
+  if (size <= 0 || raw.size() < static_cast<size_t>(size)) return nullptr;
+
+  if (!isArray) {
+    return DecodeOne(typeName, raw, 0);
+  }
+
+  size_t count = raw.size() / static_cast<size_t>(size);
+  wpi::json arr = wpi::json::array();
+  for (size_t i = 0; i < count; ++i) {
+    arr.push_back(DecodeOne(typeName, raw, i * static_cast<size_t>(size)));
+  }
+  return arr;
+}
+
+}  // namespace
 
 wpi::json RoboRioMcpTools::GetToolDefinitions() {
   wpi::json tools = wpi::json::array();
@@ -333,9 +474,18 @@ std::string RoboRioMcpTools::GetNetworkTables(std::string_view path) {
         topics[leafName] = jsonArr;
         break;
       }
-      default:
-        topics[leafName] = "[unknown type]";
+      default: {
+        // Attempt to decode WPILib struct types (Pose2d, ChassisSpeeds, etc.)
+        std::string typeStr = topic.GetTypeString();
+        auto raw = value.GetRaw();
+        auto decoded = DecodeStruct(typeStr, raw);
+        if (!decoded.is_null()) {
+          topics[leafName] = decoded;
+        } else {
+          topics[leafName] = "[unknown type]";
+        }
         break;
+      }
     }
   }
 
