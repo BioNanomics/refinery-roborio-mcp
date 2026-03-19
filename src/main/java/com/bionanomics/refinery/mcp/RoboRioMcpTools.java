@@ -185,6 +185,17 @@ public final class RoboRioMcpTools {
                 + "ignoringDisable() setting.",
             tdcSchema));
 
+        // get_vision_status tool
+        tools.add(defineTool("get_vision_status",
+            "Get a complete snapshot of the robot's vision system. Returns camera "
+                + "connectivity (per camera and per coprocessor), whether the pose has "
+                + "been seeded, the latest vision-estimated pose, best tag ambiguity, "
+                + "measurement count, configuration toggles (Enable Vision, Use April "
+                + "Rotation), and the current drivetrain pose for comparison. "
+                + "All data is read from AdvantageKit /RealOutputs/Vision/* keys and "
+                + "SmartDashboard toggles.",
+            emptySchema()));
+
         return tools;
     }
 
@@ -214,6 +225,8 @@ public final class RoboRioMcpTools {
                 return wrapTextResult(setNetworkTables(arguments));
             case "trigger_dashboard_command":
                 return wrapTextResult(triggerDashboardCommand(arguments));
+            case "get_vision_status":
+                return wrapTextResult(getVisionStatus());
             default:
                 return wrapErrorResult("Unknown tool: " + name);
         }
@@ -426,14 +439,18 @@ public final class RoboRioMcpTools {
                     }
                     topics.put(leafName, strArr);
                     break;
+                case kUnassigned:
+                    topics.put(leafName, "[unassigned]");
+                    break;
                 default:
                     // Attempt to decode WPILib struct types (Pose2d, ChassisSpeeds, etc.)
                     String typeString = topic.getTypeString();
-                    Object decoded = StructDecoder.decode(typeString, value.getRaw());
+                    byte[] raw = value.getRaw();
+                    Object decoded = StructDecoder.decode(typeString, raw);
                     if (decoded != null) {
                         topics.put(leafName, decoded);
                     } else {
-                        topics.put(leafName, "[" + value.getType().name() + "]");
+                        topics.put(leafName, "[" + typeString + " (" + raw.length + " bytes)]");
                     }
                     break;
             }
@@ -714,6 +731,86 @@ public final class RoboRioMcpTools {
         JsonMap result = new JsonMap();
         result.put("command", name);
         result.put("status", "triggered");
+        return result.toJson();
+    }
+
+    /**
+     * Read all vision-related AdvantageKit and SmartDashboard keys into one response.
+     */
+    private static String getVisionStatus() {
+        NetworkTableInstance ntInst = NetworkTableInstance.getDefault();
+        JsonMap result = new JsonMap();
+
+        // --- Config toggles (SmartDashboard) ---
+        JsonMap config = new JsonMap();
+        config.put("enableVision",
+            ntInst.getEntry("/SmartDashboard/Enable Vision").getBoolean(false));
+        config.put("useAprilRotation",
+            ntInst.getEntry("/SmartDashboard/Use April Rotation").getBoolean(false));
+        result.put("config", config);
+
+        // --- Seeding state ---
+        JsonMap seeding = new JsonMap();
+        seeding.put("poseSeeded",
+            ntInst.getEntry("/RealOutputs/Vision/PoseSeeded").getBoolean(false));
+
+        // Seed fallback pose (struct:Pose2d)
+        var sfTopic = ntInst.getTopic("/RealOutputs/Vision/SeedFallback");
+        byte[] sfRaw = ntInst.getEntry("/RealOutputs/Vision/SeedFallback").getValue().getRaw();
+        if (sfRaw != null && sfRaw.length > 0) {
+            Object sfDecoded = StructDecoder.decode(sfTopic.getTypeString(), sfRaw);
+            if (sfDecoded != null) {
+                seeding.put("seedFallbackPose", sfDecoded);
+            }
+        }
+        result.put("seeding", seeding);
+
+        // --- Camera connectivity ---
+        JsonMap cameras = new JsonMap();
+        String[] cameraNames = {"CameraFL", "CameraFR", "CameraBL", "CameraBR"};
+        for (String cam : cameraNames) {
+            cameras.put(cam,
+                ntInst.getEntry("/RealOutputs/Vision/" + cam + "/Connected").getBoolean(false));
+        }
+        result.put("cameras", cameras);
+
+        JsonMap coprocessors = new JsonMap();
+        coprocessors.put("left",
+            ntInst.getEntry("/RealOutputs/Vision/CoprocessorL_Connected").getBoolean(false));
+        coprocessors.put("right",
+            ntInst.getEntry("/RealOutputs/Vision/CoprocessorR_Connected").getBoolean(false));
+        result.put("coprocessors", coprocessors);
+
+        // --- Detection state ---
+        JsonMap detection = new JsonMap();
+        detection.put("hasTarget",
+            ntInst.getEntry("/RealOutputs/Vision/HasTarget").getBoolean(false));
+        detection.put("measurementCount",
+            (long) ntInst.getEntry("/RealOutputs/Vision/MeasurementCount").getInteger(0));
+        detection.put("bestAmbiguity",
+            ntInst.getEntry("/RealOutputs/Vision/BestAmbiguity").getDouble(1.0));
+        result.put("detection", detection);
+
+        // --- Estimated pose from vision (struct:Pose2d) ---
+        var epTopic = ntInst.getTopic("/RealOutputs/Vision/EstimatedPose");
+        byte[] epRaw = ntInst.getEntry("/RealOutputs/Vision/EstimatedPose").getValue().getRaw();
+        if (epRaw != null && epRaw.length > 0) {
+            Object epDecoded = StructDecoder.decode(epTopic.getTypeString(), epRaw);
+            if (epDecoded != null) {
+                result.put("estimatedPose", epDecoded);
+            }
+        }
+
+        // --- Current drivetrain pose for comparison (struct:Pose2d) ---
+        var dpTopic = ntInst.getTopic("/RealOutputs/Drivetrain/Pose");
+        byte[] dpRaw = ntInst.getEntry("/RealOutputs/Drivetrain/Pose").getValue().getRaw();
+        if (dpRaw != null && dpRaw.length > 0) {
+            Object dpDecoded = StructDecoder.decode(dpTopic.getTypeString(), dpRaw);
+            if (dpDecoded != null) {
+                result.put("drivetrainPose", dpDecoded);
+            }
+        }
+
         return result.toJson();
     }
 

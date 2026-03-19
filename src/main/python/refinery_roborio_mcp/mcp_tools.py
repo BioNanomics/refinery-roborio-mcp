@@ -66,6 +66,17 @@ class RoboRioMcpTools:
                     },
                 },
             ),
+            _define_tool(
+                "get_vision_status",
+                "Get a complete snapshot of the robot's vision system. Returns camera "
+                "connectivity (per camera and per coprocessor), whether the pose has "
+                "been seeded, the latest vision-estimated pose, best tag ambiguity, "
+                "measurement count, configuration toggles (Enable Vision, Use April "
+                "Rotation), and the current drivetrain pose for comparison. "
+                "All data is read from AdvantageKit /RealOutputs/Vision/* keys and "
+                "SmartDashboard toggles.",
+                _empty_schema(),
+            ),
         ]
         return tools
 
@@ -82,6 +93,7 @@ class RoboRioMcpTools:
             "get_networktables": lambda: _wrap_text_result(
                 _get_networktables(arguments.get("path") or "/")
             ),
+            "get_vision_status": lambda: _wrap_text_result(_get_vision_status()),
         }
         handler = handlers.get(name)
         if handler is None:
@@ -259,6 +271,8 @@ def _get_networktables(path):
             topics[leaf_name] = list(value.getIntegerArray())
         elif nt_type == nt_types.kStringArray:
             topics[leaf_name] = list(value.getStringArray())
+        elif nt_type == nt_types.kUnassigned:
+            topics[leaf_name] = "[unassigned]"
         else:
             # Attempt to decode WPILib struct types (Pose2d, ChassisSpeeds, etc.)
             type_str = topic.getTypeString()
@@ -267,9 +281,72 @@ def _get_networktables(path):
             if decoded is not None:
                 topics[leaf_name] = decoded
             else:
-                topics[leaf_name] = f"[{nt_type.name}]"
+                topics[leaf_name] = f"[{type_str} ({len(raw)} bytes)]"
 
     return json.dumps({"path": path, "subtables": subtables, "topics": topics})
+
+
+def _get_vision_status():
+    """Read all vision-related AdvantageKit and SmartDashboard keys."""
+    import ntcore
+    nt_inst = ntcore.NetworkTableInstance.getDefault()
+
+    def _get_bool(key, default=False):
+        return nt_inst.getEntry(key).getBoolean(default)
+
+    def _get_double(key, default=0.0):
+        return nt_inst.getEntry(key).getDouble(default)
+
+    def _get_int(key, default=0):
+        return nt_inst.getEntry(key).getInteger(default)
+
+    def _try_decode_pose(key):
+        topic = nt_inst.getTopic(key)
+        raw = nt_inst.getEntry(key).getValue().getRaw()
+        if raw:
+            decoded = _decode_struct(topic.getTypeString(), raw)
+            if decoded is not None:
+                return decoded
+        return None
+
+    result = {
+        "config": {
+            "enableVision": _get_bool("/SmartDashboard/Enable Vision"),
+            "useAprilRotation": _get_bool("/SmartDashboard/Use April Rotation"),
+        },
+        "seeding": {
+            "poseSeeded": _get_bool("/RealOutputs/Vision/PoseSeeded"),
+        },
+        "cameras": {
+            "CameraFL": _get_bool("/RealOutputs/Vision/CameraFL/Connected"),
+            "CameraFR": _get_bool("/RealOutputs/Vision/CameraFR/Connected"),
+            "CameraBL": _get_bool("/RealOutputs/Vision/CameraBL/Connected"),
+            "CameraBR": _get_bool("/RealOutputs/Vision/CameraBR/Connected"),
+        },
+        "coprocessors": {
+            "left": _get_bool("/RealOutputs/Vision/CoprocessorL_Connected"),
+            "right": _get_bool("/RealOutputs/Vision/CoprocessorR_Connected"),
+        },
+        "detection": {
+            "hasTarget": _get_bool("/RealOutputs/Vision/HasTarget"),
+            "measurementCount": _get_int("/RealOutputs/Vision/MeasurementCount"),
+            "bestAmbiguity": _get_double("/RealOutputs/Vision/BestAmbiguity", 1.0),
+        },
+    }
+
+    sf = _try_decode_pose("/RealOutputs/Vision/SeedFallback")
+    if sf is not None:
+        result["seeding"]["seedFallbackPose"] = sf
+
+    ep = _try_decode_pose("/RealOutputs/Vision/EstimatedPose")
+    if ep is not None:
+        result["estimatedPose"] = ep
+
+    dp = _try_decode_pose("/RealOutputs/Drivetrain/Pose")
+    if dp is not None:
+        result["drivetrainPose"] = dp
+
+    return json.dumps(result)
 
 
 # ---- Struct decoding ----

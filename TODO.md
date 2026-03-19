@@ -64,6 +64,13 @@
   - Return plain dicts with named fields
 - [x] Add CI parity test: all three languages return identical JSON structure for the same struct types
 
+## Phase 9: Vision Support
+- [x] Java: `get_vision_status` tool — reads all AdvantageKit `/RealOutputs/Vision/*` keys
+  and SmartDashboard toggles in one call (cameras, coprocessors, seeding, detection, poses)
+- [x] C++: `get_vision_status` tool — same output structure as Java
+- [x] Python: `get_vision_status` tool — same output structure as Java
+- [x] Bump SERVER_VERSION to 0.0.5 (Java)
+
 ## Future
 - [ ] Publish to Maven repository for vendordep distribution
 - [ ] AdvantageKit-specific tool for structured log browsing

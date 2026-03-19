@@ -214,6 +214,17 @@ wpi::json RoboRioMcpTools::GetToolDefinitions() {
       "Use the 'path' argument to navigate deeper.",
       ntSchema));
 
+  tools.push_back(DefineTool(
+      "get_vision_status",
+      "Get a complete snapshot of the robot's vision system. Returns camera "
+      "connectivity (per camera and per coprocessor), whether the pose has "
+      "been seeded, the latest vision-estimated pose, best tag ambiguity, "
+      "measurement count, configuration toggles (Enable Vision, Use April "
+      "Rotation), and the current drivetrain pose for comparison. "
+      "All data is read from AdvantageKit /RealOutputs/Vision/* keys and "
+      "SmartDashboard toggles.",
+      EmptySchema()));
+
   return tools;
 }
 
@@ -240,6 +251,8 @@ wpi::json RoboRioMcpTools::CallTool(std::string_view name,
       }
     }
     return WrapTextResult(GetNetworkTables(path));
+  } else if (name == "get_vision_status") {
+    return WrapTextResult(GetVisionStatus());
   } else {
     return WrapErrorResult(std::string("Unknown tool: ") + std::string(name));
   }
@@ -474,6 +487,9 @@ std::string RoboRioMcpTools::GetNetworkTables(std::string_view path) {
         topics[leafName] = jsonArr;
         break;
       }
+      case NT_UNASSIGNED:
+        topics[leafName] = "[unassigned]";
+        break;
       default: {
         // Attempt to decode WPILib struct types (Pose2d, ChassisSpeeds, etc.)
         std::string typeStr = topic.GetTypeString();
@@ -482,7 +498,8 @@ std::string RoboRioMcpTools::GetNetworkTables(std::string_view path) {
         if (!decoded.is_null()) {
           topics[leafName] = decoded;
         } else {
-          topics[leafName] = "[unknown type]";
+          topics[leafName] = "[" + typeStr + " (" +
+                             std::to_string(raw.size()) + " bytes)]";
         }
         break;
       }
@@ -491,6 +508,100 @@ std::string RoboRioMcpTools::GetNetworkTables(std::string_view path) {
 
   wpi::json result = {
       {"path", std::string(path)}, {"subtables", subtables}, {"topics", topics}};
+  return result.dump();
+}
+
+std::string RoboRioMcpTools::GetVisionStatus() {
+  auto ntInst = nt::NetworkTableInstance::GetDefault();
+  wpi::json result = wpi::json::object();
+
+  // Config toggles (SmartDashboard)
+  result["config"] = {
+      {"enableVision",
+       ntInst.GetEntry("/SmartDashboard/Enable Vision").GetBoolean(false)},
+      {"useAprilRotation",
+       ntInst.GetEntry("/SmartDashboard/Use April Rotation").GetBoolean(false)}};
+
+  // Seeding state
+  wpi::json seeding = {
+      {"poseSeeded",
+       ntInst.GetEntry("/RealOutputs/Vision/PoseSeeded").GetBoolean(false)}};
+
+  // Seed fallback pose
+  {
+    auto topic = ntInst.GetTopic("/RealOutputs/Vision/SeedFallback");
+    auto raw = ntInst.GetEntry("/RealOutputs/Vision/SeedFallback")
+                   .GetValue()
+                   .GetRaw();
+    if (!raw.empty()) {
+      auto decoded = DecodeStruct(topic.GetTypeString(), raw);
+      if (!decoded.is_null()) {
+        seeding["seedFallbackPose"] = decoded;
+      }
+    }
+  }
+  result["seeding"] = seeding;
+
+  // Camera connectivity
+  result["cameras"] = {
+      {"CameraFL",
+       ntInst.GetEntry("/RealOutputs/Vision/CameraFL/Connected")
+           .GetBoolean(false)},
+      {"CameraFR",
+       ntInst.GetEntry("/RealOutputs/Vision/CameraFR/Connected")
+           .GetBoolean(false)},
+      {"CameraBL",
+       ntInst.GetEntry("/RealOutputs/Vision/CameraBL/Connected")
+           .GetBoolean(false)},
+      {"CameraBR",
+       ntInst.GetEntry("/RealOutputs/Vision/CameraBR/Connected")
+           .GetBoolean(false)}};
+
+  result["coprocessors"] = {
+      {"left",
+       ntInst.GetEntry("/RealOutputs/Vision/CoprocessorL_Connected")
+           .GetBoolean(false)},
+      {"right",
+       ntInst.GetEntry("/RealOutputs/Vision/CoprocessorR_Connected")
+           .GetBoolean(false)}};
+
+  // Detection state
+  result["detection"] = {
+      {"hasTarget",
+       ntInst.GetEntry("/RealOutputs/Vision/HasTarget").GetBoolean(false)},
+      {"measurementCount",
+       ntInst.GetEntry("/RealOutputs/Vision/MeasurementCount").GetInteger(0)},
+      {"bestAmbiguity",
+       ntInst.GetEntry("/RealOutputs/Vision/BestAmbiguity").GetDouble(1.0)}};
+
+  // Estimated pose from vision
+  {
+    auto topic = ntInst.GetTopic("/RealOutputs/Vision/EstimatedPose");
+    auto raw = ntInst.GetEntry("/RealOutputs/Vision/EstimatedPose")
+                   .GetValue()
+                   .GetRaw();
+    if (!raw.empty()) {
+      auto decoded = DecodeStruct(topic.GetTypeString(), raw);
+      if (!decoded.is_null()) {
+        result["estimatedPose"] = decoded;
+      }
+    }
+  }
+
+  // Current drivetrain pose for comparison
+  {
+    auto topic = ntInst.GetTopic("/RealOutputs/Drivetrain/Pose");
+    auto raw = ntInst.GetEntry("/RealOutputs/Drivetrain/Pose")
+                   .GetValue()
+                   .GetRaw();
+    if (!raw.empty()) {
+      auto decoded = DecodeStruct(topic.GetTypeString(), raw);
+      if (!decoded.is_null()) {
+        result["drivetrainPose"] = decoded;
+      }
+    }
+  }
+
   return result.dump();
 }
 

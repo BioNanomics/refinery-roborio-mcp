@@ -48,6 +48,7 @@ class RoboRioMcpTools {
   static std::string GetConnectionInfo();
   static std::string GetSubsystems();
   static std::string GetNetworkTables(std::string_view path);
+  static std::string GetVisionStatus();
 };
 
 }  // namespace refinery::mcp
