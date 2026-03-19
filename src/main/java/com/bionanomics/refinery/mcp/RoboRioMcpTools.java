@@ -123,6 +123,68 @@ public final class RoboRioMcpTools {
                 + "Button 1=A, 2=B, 3=X, 4=Y, 5=LB, 6=RB.",
             sjSchema));
 
+        // set_networktables tool
+        JsonMap sntProperties = new JsonMap();
+
+        JsonMap sntPath = new JsonMap();
+        sntPath.put("type", "string");
+        sntPath.put("description", "Full NetworkTables key path to write. "
+            + "Example: \"/SmartDashboard/Shoot Speed\" or \"/SmartDashboard/Auto Aim\".");
+        sntProperties.put("path", sntPath);
+
+        JsonMap sntValue = new JsonMap();
+        sntValue.put("description", "Value to write. Can be boolean, number, string, "
+            + "or an array of those types. Type is auto-detected from JSON: "
+            + "true/false=boolean, integer=integer, decimal=double, "
+            + "\"text\"=string, [1.0,2.0]=doubleArray.");
+        sntProperties.put("value", sntValue);
+
+        JsonMap sntType = new JsonMap();
+        sntType.put("type", "string");
+        sntType.put("description", "Optional type hint to override auto-detection. "
+            + "One of: boolean, double, integer, string, doubleArray, booleanArray, "
+            + "integerArray, stringArray.");
+        sntProperties.put("type", sntType);
+
+        JsonList sntRequired = new JsonList();
+        sntRequired.add("path");
+        sntRequired.add("value");
+
+        JsonMap sntSchema = new JsonMap();
+        sntSchema.put("type", "object");
+        sntSchema.put("properties", sntProperties);
+        sntSchema.put("required", sntRequired);
+
+        tools.add(defineTool("set_networktables",
+            "Write a value to a NetworkTables key. Supports boolean, double, integer, "
+                + "string, and typed arrays. Works regardless of enable state. "
+                + "Use get_networktables to browse existing keys first.",
+            sntSchema));
+
+        // trigger_dashboard_command tool
+        JsonMap tdcProperties = new JsonMap();
+
+        JsonMap tdcName = new JsonMap();
+        tdcName.put("type", "string");
+        tdcName.put("description", "Name of the SmartDashboard command widget to trigger. "
+            + "Example: \"Zero Turret\". Must match the name used in SmartDashboard.putData().");
+        tdcProperties.put("name", tdcName);
+
+        JsonList tdcRequired = new JsonList();
+        tdcRequired.add("name");
+
+        JsonMap tdcSchema = new JsonMap();
+        tdcSchema.put("type", "object");
+        tdcSchema.put("properties", tdcProperties);
+        tdcSchema.put("required", tdcRequired);
+
+        tools.add(defineTool("trigger_dashboard_command",
+            "Trigger a SmartDashboard command button (e.g. 'Zero Turret'). "
+                + "This works like clicking the button in Elastic/Shuffleboard. "
+                + "Whether it runs while disabled depends on the command's own "
+                + "ignoringDisable() setting.",
+            tdcSchema));
+
         return tools;
     }
 
@@ -148,6 +210,10 @@ public final class RoboRioMcpTools {
                 return wrapTextResult(getNetworkTables(path));
             case "simulate_joystick":
                 return wrapTextResult(simulateJoystick(arguments));
+            case "set_networktables":
+                return wrapTextResult(setNetworkTables(arguments));
+            case "trigger_dashboard_command":
+                return wrapTextResult(triggerDashboardCommand(arguments));
             default:
                 return wrapErrorResult("Unknown tool: " + name);
         }
@@ -448,6 +514,206 @@ public final class RoboRioMcpTools {
         if (buttons != null) result.put("buttons_set", true);
         if (pov != -2) result.put("pov", pov);
         result.put("status", "ok");
+        return result.toJson();
+    }
+
+    /**
+     * Write a value to a NetworkTables key.
+     */
+    private static String setNetworkTables(JsonMap arguments) {
+        String path = arguments.getString("path");
+        if (path == null || path.isEmpty()) {
+            return "{\"error\":\"'path' is required.\"}";
+        }
+        if (!path.startsWith("/")) {
+            return "{\"error\":\"'path' must start with /.\"}";
+        }
+
+        Object value = arguments.get("value");
+        if (value == null) {
+            return "{\"error\":\"'value' is required.\"}";
+        }
+
+        String typeHint = arguments.getString("type");
+        var entry = NetworkTableInstance.getDefault().getEntry(path);
+        String typeWritten;
+
+        if (typeHint != null) {
+            // Explicit type override
+            switch (typeHint) {
+                case "boolean":
+                    entry.setBoolean(value instanceof Boolean ? (Boolean) value : Boolean.parseBoolean(value.toString()));
+                    typeWritten = "boolean";
+                    break;
+                case "double":
+                    entry.setDouble(value instanceof Number ? ((Number) value).doubleValue() : Double.parseDouble(value.toString()));
+                    typeWritten = "double";
+                    break;
+                case "integer":
+                    entry.setInteger(value instanceof Number ? ((Number) value).longValue() : Long.parseLong(value.toString()));
+                    typeWritten = "integer";
+                    break;
+                case "string":
+                    entry.setString(value.toString());
+                    typeWritten = "string";
+                    break;
+                case "doubleArray":
+                    typeWritten = "doubleArray";
+                    if (value instanceof JsonList) {
+                        JsonList list = (JsonList) value;
+                        double[] arr = new double[list.size()];
+                        for (int i = 0; i < list.size(); i++) {
+                            arr[i] = ((Number) list.get(i)).doubleValue();
+                        }
+                        entry.setDoubleArray(arr);
+                    } else {
+                        return "{\"error\":\"doubleArray type requires an array value.\"}";
+                    }
+                    break;
+                case "booleanArray":
+                    typeWritten = "booleanArray";
+                    if (value instanceof JsonList) {
+                        JsonList list = (JsonList) value;
+                        boolean[] arr = new boolean[list.size()];
+                        for (int i = 0; i < list.size(); i++) {
+                            arr[i] = (Boolean) list.get(i);
+                        }
+                        entry.setBooleanArray(arr);
+                    } else {
+                        return "{\"error\":\"booleanArray type requires an array value.\"}";
+                    }
+                    break;
+                case "integerArray":
+                    typeWritten = "integerArray";
+                    if (value instanceof JsonList) {
+                        JsonList list = (JsonList) value;
+                        long[] arr = new long[list.size()];
+                        for (int i = 0; i < list.size(); i++) {
+                            arr[i] = ((Number) list.get(i)).longValue();
+                        }
+                        entry.setIntegerArray(arr);
+                    } else {
+                        return "{\"error\":\"integerArray type requires an array value.\"}";
+                    }
+                    break;
+                case "stringArray":
+                    typeWritten = "stringArray";
+                    if (value instanceof JsonList) {
+                        JsonList list = (JsonList) value;
+                        String[] arr = new String[list.size()];
+                        for (int i = 0; i < list.size(); i++) {
+                            arr[i] = list.get(i).toString();
+                        }
+                        entry.setStringArray(arr);
+                    } else {
+                        return "{\"error\":\"stringArray type requires an array value.\"}";
+                    }
+                    break;
+                default:
+                    return "{\"error\":\"Unknown type hint: " + typeHint + "\"}";
+            }
+        } else {
+            // Auto-detect from JSON value type
+            if (value instanceof Boolean) {
+                entry.setBoolean((Boolean) value);
+                typeWritten = "boolean";
+            } else if (value instanceof Long || value instanceof Integer) {
+                entry.setInteger(((Number) value).longValue());
+                typeWritten = "integer";
+            } else if (value instanceof Number) {
+                entry.setDouble(((Number) value).doubleValue());
+                typeWritten = "double";
+            } else if (value instanceof String) {
+                entry.setString((String) value);
+                typeWritten = "string";
+            } else if (value instanceof JsonList) {
+                JsonList list = (JsonList) value;
+                if (list.size() == 0) {
+                    entry.setDoubleArray(new double[0]);
+                    typeWritten = "doubleArray";
+                } else {
+                    Object first = list.get(0);
+                    if (first instanceof Boolean) {
+                        boolean[] arr = new boolean[list.size()];
+                        for (int i = 0; i < list.size(); i++) {
+                            arr[i] = (Boolean) list.get(i);
+                        }
+                        entry.setBooleanArray(arr);
+                        typeWritten = "booleanArray";
+                    } else if (first instanceof String) {
+                        String[] arr = new String[list.size()];
+                        for (int i = 0; i < list.size(); i++) {
+                            arr[i] = list.get(i).toString();
+                        }
+                        entry.setStringArray(arr);
+                        typeWritten = "stringArray";
+                    } else {
+                        double[] arr = new double[list.size()];
+                        for (int i = 0; i < list.size(); i++) {
+                            arr[i] = ((Number) list.get(i)).doubleValue();
+                        }
+                        entry.setDoubleArray(arr);
+                        typeWritten = "doubleArray";
+                    }
+                }
+            } else {
+                return "{\"error\":\"Cannot determine NT type for value: " + value + "\"}";
+            }
+        }
+
+        JsonMap result = new JsonMap();
+        result.put("path", path);
+        result.put("type", typeWritten);
+        result.put("status", "ok");
+        return result.toJson();
+    }
+
+    /**
+     * Trigger a SmartDashboard command widget by name.
+     * Writes to the Sendable protocol's .command/running key.
+     */
+    private static String triggerDashboardCommand(JsonMap arguments) {
+        String name = arguments.getString("name");
+        if (name == null || name.isEmpty()) {
+            return "{\"error\":\"'name' is required.\"}";
+        }
+
+        NetworkTableInstance ntInst = NetworkTableInstance.getDefault();
+        // SmartDashboard commands are stored under /SmartDashboard/{name}
+        // The Sendable command protocol uses a "running" key at the table level
+        String runningKey = "/SmartDashboard/" + name + "/running";
+
+        // Check if the command exists by looking for the .type key
+        String typeKey = "/SmartDashboard/" + name + "/.type";
+        var typeEntry = ntInst.getEntry(typeKey);
+        var typeValue = typeEntry.getValue();
+
+        if (typeValue.getType() == edu.wpi.first.networktables.NetworkTableType.kUnassigned) {
+            // Command not found — list available commands to help
+            NetworkTable sd = ntInst.getTable("SmartDashboard");
+            Set<String> subtables = sd.getSubTables();
+            JsonList available = new JsonList();
+            for (String sub : subtables) {
+                // Only include entries that have .type = "Command"
+                NetworkTable subTable = sd.getSubTable(sub);
+                var subType = ntInst.getEntry("/SmartDashboard/" + sub + "/.type").getValue();
+                if (subType.getType() == edu.wpi.first.networktables.NetworkTableType.kString
+                    && "Command".equals(subType.getString())) {
+                    available.add(sub);
+                }
+            }
+            JsonMap err = new JsonMap();
+            err.put("error", "Command '" + name + "' not found in SmartDashboard.");
+            err.put("available_commands", available);
+            return err.toJson();
+        }
+
+        // Trigger the command by setting running = true
+        ntInst.getEntry(runningKey).setBoolean(true);
+
+        JsonMap result = new JsonMap();
+        result.put("command", name);
+        result.put("status", "triggered");
         return result.toJson();
     }
 
